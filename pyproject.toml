@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "causal-dsp"
+version = "0.1.0"
+description = "Formally Verified Prefix-Causal Signal Processing & Mathematical Risk Invariants for Time-Series Analysis in Python and Lean 4"
+readme = "README.md"
+authors = [
+    { name = "Md Abubakar Siddik", email = "abubakar293@users.noreply.github.com" }
+]
+license = { text = "MIT" }
+keywords = [
+    "dsp",
+    "signal-processing",
+    "causality",
+    "formal-verification",
+    "lean4",
+    "wavelets",
+    "fractional-differencing",
+    "kalman-filter",
+    "risk-invariants",
+    "quantitative-finance",
+    "time-series"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Typing :: Typed",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24.0",
+    "scipy>=1.10.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0.0"
+]
+
+[project.urls]
+"Homepage" = "https://github.com/abubakar293/causal-dsp"
+"Repository" = "https://github.com/abubakar293/causal-dsp"
+"Bug Tracker" = "https://github.com/abubakar293/causal-dsp/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+causal_dsp = ["py.typed"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true

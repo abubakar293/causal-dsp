@@ -1,0 +1,27 @@
+name: Feature Request
+description: Propose a new causal filter, formal proof, or risk invariant
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea for a new causal DSP primitive or formal Lean 4 verification target? Let us know!
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific mathematical or time-series problem?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution / Algorithm
+      description: Detailed description of the algorithm and mathematical causality guarantee.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative implementations or existing non-causal approximations you have considered.

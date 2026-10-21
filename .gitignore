@@ -1,0 +1,35 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+.eggs/
+
+# Unit test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+*.xml
+
+# Lean 4 / Lake build artifacts
+.lake/
+*.olean
+*.ilean
+*.c
+
+# Environments
+.venv/
+env/
+venv/
+ENV/
+
+# OS / Editor artifacts
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
