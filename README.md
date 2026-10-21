@@ -6,60 +6,56 @@
 
 [![CI](https://github.com/abubakar293/causal-dsp/actions/workflows/ci.yml/badge.svg)](https://github.com/abubakar293/causal-dsp/actions/workflows/ci.yml)
 [![Lean 4 Verified](https://img.shields.io/badge/Lean_4-Formal_Proofs_100%25-blue.svg)](https://github.com/abubakar293/causal-dsp/tree/main/verification)
-[![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-brightgreen.svg)](https://pypi.org/project/causal-dsp/)
+[![Python Version](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-brightgreen.svg)](https://github.com/abubakar293/causal-dsp)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Lookahead Bias](https://img.shields.io/badge/Lookahead_Bias-Zero_Guaranteed-success.svg)](#prefix-causality-verification)
-[![OpenAI Codex OSS](https://img.shields.io/badge/OpenAI_Codex-OSS_Candidate-blueviolet.svg)](https://openai.com/form/codex-for-oss)
 
 <p align="center">
-  <b>A production-grade Python and Lean 4 library establishing strict prefix causality, lookahead-free wavelets, memory-preserving fractional differencing, one-sided polynomial filters, and formally verified risk invariants for quantitative finance and streaming machine learning.</b>
+  A Python and Lean 4 library providing strict prefix-causal filters, wavelets, fractional differencing, and formally verified risk invariants for time-series modeling.
 </p>
 
 </div>
 
 ---
 
-## 🌟 Table of Contents
-- [The Fundamental Problem](#-the-fundamental-problem)
-- [Architecture & Module Overview](#-architecture--module-overview)
-- [Mathematical Foundations](#-mathematical-foundations)
+## Table of Contents
+- [Motivation](#motivation)
+- [Architecture](#architecture)
+- [Mathematical Foundations](#mathematical-foundations)
   - [1. Definition of Prefix Causality](#1-definition-of-prefix-causality)
   - [2. Strictly Causal Haar MODWT & Exact Reconstruction](#2-strictly-causal-haar-modwt--exact-reconstruction)
   - [3. Memory-Preserving Causal Fractional Differencing](#3-memory-preserving-causal-fractional-differencing)
   - [4. One-Sided Right-Edge Savitzky-Golay Filter](#4-one-sided-right-edge-savitzky-golay-filter)
   - [5. Formal Mathematical Risk Invariants](#5-formal-mathematical-risk-invariants)
-- [Benchmark & Comparison Matrix](#-benchmark--comparison-matrix)
-- [Lean 4 Formal Verification](#-lean-4-formal-verification)
-- [Installation](#-installation)
-- [Quickstart Guide](#-quickstart-guide)
+- [Comparison Matrix](#comparison-matrix)
+- [Formal Verification in Lean 4](#formal-verification-in-lean-4)
+- [Installation](#installation)
+- [Quickstart Guide](#quickstart-guide)
   - [Perturbation Shock Testing](#1-perturbation-shock-testing)
   - [Causal Wavelet Multi-Scale Decomposition](#2-causal-wavelet-multi-scale-decomposition)
   - [Fractional Differencing for Stationarity](#3-fractional-differencing-for-stationarity)
   - [Causal Savitzky-Golay vs Symmetric SciPy](#4-causal-savitzky-golay-vs-symmetric-scipy)
   - [Mathematical Risk Invariants](#5-mathematical-risk-invariants)
-- [Contributing & Development](#-contributing--development)
-- [Citation](#-citation)
-- [License](#-license)
+- [Contributing](#contributing)
+- [Citation](#citation)
+- [License](#license)
 
 ---
 
-## ⚠️ The Fundamental Problem
+## Motivation
 
-In time-series forecasting, quantitative finance, and streaming signal processing, **lookahead bias is the silent killer**. 
+Most digital signal processing routines assume the entire dataset is available in advance. Standard implementations in SciPy, PyWavelets, and statsmodels often use centered windows, symmetric boundary reflection, or full-batch convolutions:
 
-Standard scientific libraries (`scipy.signal`, `PyWavelets`, `statsmodels`, MATLAB) were engineered primarily for offline image processing, audio engineering, or geophysics where the entire signal is available bi-directionally. When applied to real-time streams, their default configurations silently contaminate features with future information:
+1. **Symmetric Windowing**: `scipy.signal.savgol_filter` centers its polynomial fit, querying future samples $x[t+1 \dots t + \frac{W-1}{2}]$.
+2. **Boundary Reflection**: Standard discrete and maximal overlap wavelet transforms (`pywt.dwt`, `pywt.swt`) apply symmetric reflection (`reflect`) or periodic wrap-around (`periodic`), folding future observations backwards into the present.
+3. **Differencing Memory Leaks**: Fractional differencing implementations that evaluate symmetric binomial expansions across entire arrays leak forward returns into past values.
 
-1. **Symmetric Windowing**: `scipy.signal.savgol_filter` centers its polynomial fit, querying $\frac{W-1}{2}$ bars into the future $x[t+1 \dots t + \frac{W-1}{2}]$.
-2. **Boundary Padding Reflection**: Discrete and Maximal Overlap Wavelet Transforms (`pywt.dwt`, `pywt.swt`) apply symmetric reflection (`reflect`) or periodic wrap-around (`periodic`), folding future observations backwards into the present.
-3. **Truncated Differencing Memory Leak**: Non-causal fractional differencing implementations evaluate symmetric binomial kernels across entire batches, leaking forward returns.
+In backtests, features contaminated by these lookahead leaks show strong predictive performance. In live deployment, however, future observations are unavailable, causing sudden degradation in predictive accuracy.
 
-When models train on features contaminated by these lookahead leaks, backtests report astronomical Sharpe ratios ($> 10.0$) and superhuman win rates. However, **the moment the strategy runs in live execution, the future information disappears, and the system collapses into catastrophic drawdowns**.
-
-**`causal-dsp` solves this systematically** by delivering algorithms mathematically constructed to be **strictly prefix-causal**, backed by automated perturbation shock validators and 100% machine-checked proofs in **Lean 4**.
+`causal-dsp` provides streaming algorithms where filter outputs at step $t$ depend solely on past and present observations $x[0 \dots t]$. Implementations are verified through automated perturbation shock testing and machine-checked Lean 4 proofs.
 
 ---
 
-## 🏗️ Architecture & Module Overview
+## Architecture
 
 ```mermaid
 flowchart TD
@@ -108,7 +104,7 @@ flowchart TD
 
 ---
 
-## 📐 Mathematical Foundations
+## Mathematical Foundations
 
 ### 1. Definition of Prefix Causality
 
@@ -173,7 +169,7 @@ The causal FIR filter coefficients for evaluating derivative order $m \le P$ at 
 
 ---
 
-## 📊 Benchmark & Comparison Matrix
+## Comparison Matrix
 
 | Capability / Metric | `scipy.signal` | `PyWavelets` (`pywt`) | `statsmodels` | `causal-dsp` (This Library) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -189,7 +185,7 @@ The causal FIR filter coefficients for evaluating derivative order $m \le P$ at 
 
 ---
 
-## 🔬 Lean 4 Formal Verification
+## Formal Verification in Lean 4
 
 The mathematical theorems underpinning `causal-dsp` are formally specified and verified in **Lean 4** (`leanprover/lean4:v4.35.0`). Every theorem is proved using standard core axioms (`propext`, `Classical.choice`, `Quot.sound`) with **ZERO custom axioms and ZERO `sorry`**.
 
@@ -260,7 +256,7 @@ Build completed successfully (5 jobs).
 
 ---
 
-## 📦 Installation
+## Installation
 
 Install `causal-dsp` from source or via pip:
 
@@ -280,7 +276,7 @@ Requirements: `Python >= 3.10`, `numpy >= 1.24.0`, `scipy >= 1.10.0`.
 
 ---
 
-## 🚀 Quickstart Guide
+## Quickstart Guide
 
 ### 1. Perturbation Shock Testing
 
@@ -402,7 +398,7 @@ assert sl_t2 == 110.0
 
 ---
 
-## 🧪 Contributing & Development
+## Contributing
 
 We welcome contributions from quantitative researchers, signal processing engineers, and formal verification specialists.
 
@@ -418,7 +414,7 @@ Please review [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_O
 
 ---
 
-## 📜 Citation
+## Citation
 
 If you use `causal-dsp` in your research, trading systems, or academic publications, please cite:
 
@@ -436,7 +432,7 @@ If you use `causal-dsp` in your research, trading systems, or academic publicati
 
 ---
 
-## 📄 License
+## License
 
 This project is open source and distributed under the [MIT License](LICENSE).  
 Copyright © 2026 Md Abubakar Siddik. All rights reserved.

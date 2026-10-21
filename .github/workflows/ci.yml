@@ -41,13 +41,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Install elan / Lean 4
-        uses: leanprover/lean-action@v1
-        with:
-          lean-version: "v4.35.0"
+      - name: Install elan
+        run: |
+          curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
 
       - name: Verify Formal Proofs (Zero Sorry, Zero Custom Axioms)
         run: |
+          export PATH="$HOME/.elan/bin:$PATH"
           cd verification
           lake build
           lake env lean CheckAxioms.lean
