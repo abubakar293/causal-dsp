@@ -30,6 +30,7 @@ from causal_dsp.invariants import (
 )
 from causal_dsp.wavelets import (
     CausalHaarBuffer,
+    MODWTEnergy,
     causal_daubechies_d4,
     causal_haar_modwt,
     causal_haar_synth,
@@ -46,6 +47,7 @@ __all__ = [
     "CausalKalman2D",
     "CausalityViolationError",
     "InvariantViolationError",
+    "MODWTEnergy",
     "__author__",
     "__license__",
     "__version__",

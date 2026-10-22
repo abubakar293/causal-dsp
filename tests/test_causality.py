@@ -145,3 +145,20 @@ def test_assert_prefix_causal_raises_on_violation() -> None:
     x = np.arange(25, dtype=np.float64)
     with pytest.raises(CausalityViolationError):
         assert_prefix_causal(leak_filter, x)
+
+
+def test_audit_rejects_degenerate_parameters() -> None:
+    """A zero-check audit must never report success without running a check."""
+    x = np.arange(50, dtype=np.float64)
+    with pytest.raises(ValueError, match="num_checks must be >= 1"):
+        validate_zero_future_leakage(lambda s: s, x, num_checks=0)
+    with pytest.raises(ValueError, match="num_checks must be >= 1"):
+        validate_zero_future_leakage(lambda s: s, x, num_checks=-2)
+    with pytest.raises(ValueError, match="min_history must be >= 0"):
+        validate_zero_future_leakage(lambda s: s, x, min_history=-1)
+    with pytest.raises(ValueError, match="num_checks must be an integer"):
+        validate_zero_future_leakage(lambda s: s, x, num_checks=2.5)
+    with pytest.raises(ValueError, match="min_history must be an integer"):
+        validate_zero_future_leakage(lambda s: s, x, min_history=2.5)
+    # bool is an int subclass and must behave as one, not reach numpy internals
+    assert validate_zero_future_leakage(lambda s: s, x, num_checks=True)

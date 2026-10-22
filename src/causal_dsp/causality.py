@@ -2,6 +2,7 @@
 Causality verification protocols, perturbation shock tests, and zero-lookahead validators.
 """
 
+import operator
 from collections.abc import Callable, Sequence
 
 import numpy as np
@@ -159,6 +160,18 @@ def validate_zero_future_leakage(
     """
     x_arr = np.asarray(x, dtype=np.float64)
     n = len(x_arr)
+    try:
+        num_checks = operator.index(num_checks)
+    except TypeError:
+        raise ValueError(f"num_checks must be an integer, got {num_checks!r}") from None
+    try:
+        min_history = operator.index(min_history)
+    except TypeError:
+        raise ValueError(f"min_history must be an integer, got {min_history!r}") from None
+    if num_checks < 1:
+        raise ValueError(f"num_checks must be >= 1, got {num_checks}")
+    if min_history < 0:
+        raise ValueError(f"min_history must be >= 0, got {min_history}")
     if n <= min_history + 2:
         raise ValueError(f"Signal length {n} is too short for min_history={min_history}")
 
