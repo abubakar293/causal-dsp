@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "causal-dsp: Formally Verified Prefix-Causal Signal Processing and Mathematical Risk Invariants"
+type: software
+authors:
+  - family-names: Siddik
+    given-names: Md Abubakar
+    alias: abubakar293
+version: 0.1.0
+date-released: "2026-10-22"
+license: MIT
+repository-code: "https://github.com/abubakar293/causal-dsp"
+url: "https://github.com/abubakar293/causal-dsp"
+keywords:
+  - dsp
+  - signal-processing
+  - causality
+  - formal-verification
+  - lean4
+  - wavelets
+  - fractional-differencing
+  - kalman-filter
+  - risk-invariants
+  - quantitative-finance
+  - time-series
