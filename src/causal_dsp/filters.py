@@ -60,7 +60,7 @@ def causal_fractional_diff(
     Each point y[t] depends strictly on past and present values x[0 ... t]:
         y[t] = sum_{k=0}^{min(t, K-1)} w_k * x[t - k]
 
-    Preserves memory features while removing unit roots and achieving stationarity.
+    Preserves memory features while approximating stationarity.
 
     Parameters
     ----------
@@ -75,6 +75,19 @@ def causal_fractional_diff(
     -------
     np.ndarray
         Fractionally differentiated causal series (same length as x).
+
+    Notes
+    -----
+    ``sum(w)`` is only approximately zero, so a constant input is attenuated
+    rather than annihilated. Two limits control the residual:
+
+    * ``threshold`` truncates the weight tail (``|w_k| < threshold``);
+    * the available history caps the weight count at ``len(x)``.
+
+    Lowering ``threshold`` reduces the residual only until the history limit
+    binds (e.g. ``d=0.4`` on a constant series leaves ~7e-2 at ``threshold=1e-4``
+    and ~2e-2 once ``n`` exceeds ~5000 with ``threshold=1e-6``). The residual is
+    exactly zero at ``d == 1``, where the weights are ``[1, -1]``.
     """
     x_arr = np.asarray(x, dtype=np.float64)
     if x_arr.ndim != 1:
