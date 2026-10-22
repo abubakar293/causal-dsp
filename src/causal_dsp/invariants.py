@@ -41,7 +41,10 @@ def guarded_div(
     num = float(numerator)
     den = float(denominator)
 
-    if not np.isfinite(den) or abs(den) < epsilon:
+    # `den == 0.0` is tested explicitly: with `epsilon=0` the magnitude test
+    # alone is never satisfied for a zero divisor, which would raise
+    # ZeroDivisionError instead of returning the documented fallback.
+    if den == 0.0 or not np.isfinite(den) or abs(den) < epsilon:
         return float(default)
     if not np.isfinite(num):
         return float(default)
@@ -62,11 +65,18 @@ def guarded_div_array(
     num = np.asarray(numerator, dtype=np.float64)
     den = np.asarray(denominator, dtype=np.float64)
 
-    safe_mask = np.isfinite(den) & (np.abs(den) >= epsilon) & np.isfinite(num)
+    safe_mask = np.isfinite(den) & (den != 0.0) & (np.abs(den) >= epsilon) & np.isfinite(num)
     out = np.full_like(num, default, dtype=np.float64)
 
-    # Avoid numpy divide-by-zero warning by dividing only on safe_mask
-    np.divide(num, den, out=out, where=safe_mask)
+    # NumPy's `where=` masks writes but still evaluates the ufunc on every
+    # element, which emits a divide-by-zero RuntimeWarning. Substitute 1.0 for
+    # unsafe denominators first so the computation itself is warning-free.
+    safe_den = np.where(safe_mask, den, 1.0)
+    # Division of finite operands can still overflow to +/-inf (e.g. 1e308 /
+    # 1e-300); suppress the IEEE warning and let the finite-check below map the
+    # result to `default`, matching the scalar implementation exactly.
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        np.divide(num, safe_den, out=out, where=safe_mask)
     # Ensure any remaining non-finite output gets default
     out[~np.isfinite(out)] = default
     return out
@@ -199,7 +209,10 @@ def leverage_constraint(
     Returns
     -------
     float
-        Clamped leverage value.
+        Clamped leverage value. A request below ``min_allowed`` is raised to
+        ``min_allowed`` (this can *increase* exposure: the helper is a clamp,
+        not a de-risking primitive, and cannot express "flat"). A request above
+        ``max_allowed`` is capped.
 
     Raises
     ------
@@ -240,6 +253,20 @@ def drawdown_bound(
         Observed maximum peak-to-trough drawdown in [0.0, 1.0].
     is_safe : bool
         True if observed max_dd <= max_drawdown_limit.
+
+    Notes
+    -----
+    This is a *reporting* helper, not a firewall, and it fails **open** on
+    degenerate input:
+
+    * non-finite equity propagates into ``guarded_div_array`` and falls back to
+      a 0.0 drawdown, so a NaN series returns ``(0.0, True)``;
+    * a non-positive peak (for example equity that starts at 0 and goes
+      negative) yields a signed ratio that is discarded by ``max``, also
+      reporting safe.
+
+    Validate or carry forward non-finite / non-positive equity upstream when
+    ``is_safe`` gates trading decisions.
     """
     eq = np.asarray(equity_curve, dtype=np.float64)
     if len(eq) == 0:

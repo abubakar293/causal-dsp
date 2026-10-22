@@ -74,13 +74,31 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install elan
+        shell: bash
         run: |
+          set -euo pipefail
           curl -sSf https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
           echo "$HOME/.elan/bin" >> $GITHUB_PATH
 
-      - name: Verify Formal Proofs (Zero Sorry, Zero Custom Axioms)
+      - name: Static proof-integrity scan (no sorry / admit / axiom)
+        shell: bash
         run: |
+          set -euo pipefail
+          python3 verification/check_no_sorry.py
+
+      - name: Verify Formal Proofs (Zero Sorry, Zero Custom Axioms)
+        # `shell: bash` + pipefail matter here: GitHub's default `bash -e {0}`
+        # has no pipefail, so `lake build | tee` would return tee's status and
+        # a failed build could still go green.
+        shell: bash
+        run: |
+          set -euo pipefail
           export PATH="$HOME/.elan/bin:$PATH"
           cd verification
-          lake build
-          lake env lean CheckAxioms.lean
+          lake build 2>&1 | tee build.log
+          if grep -q "declaration uses 'sorry'" build.log; then
+            echo "::error::Lean build reported a 'sorry' placeholder"
+            exit 1
+          fi
+          lake env lean CheckAxioms.lean | tee axioms.log
+          python3 check_no_sorry.py --axioms axioms.log

@@ -113,7 +113,19 @@ def haar_modwt_energy(
     approx: np.ndarray,
 ) -> MODWTEnergy:
     """
-    Computes energy decomposition across wavelet scales and verifies conservation.
+    Computes the L2 energy decomposition across wavelet scales.
+
+    Returns the energy of the final approximation, of each detail band, their
+    sum, and the energy of the exactly reconstructed signal. The component sum
+    is **not** exactly equal to the signal energy: the strictly causal boundary
+    clamps the lagged branch to ``A[0]``, so the dyadic shift is not an
+    isometry. Writing ``n`` for the length and ``L_j = 2**(j-1)`` for the lag,
+    the exact per-level identity is::
+
+        ||A_j||^2 + ||D_j||^2 = ||A_{j-1}||^2
+            + 0.5 * (L_j * A_{j-1}[0]^2 - sum(A_{j-1}[n-L_j:n]^2))
+
+    so any discrepancy is a pure boundary term, not round-off.
     """
     e_approx = float(np.sum(approx ** 2))
     e_details = [float(np.sum(d ** 2)) for d in details]
@@ -133,7 +145,9 @@ def haar_modwt_energy(
 class CausalHaarBuffer:
     """
     Online streaming buffer for real-time Haar MODWT computation.
-    Processes incoming price/signal stream with O(1) complexity per sample.
+
+    Per-sample work is O(levels), and retained state is bounded by
+    ``2 * max_lag + 1`` samples per level, independent of stream length.
     """
 
     def __init__(self, levels: int = 3) -> None:
@@ -169,8 +183,12 @@ class CausalHaarBuffer:
         self.history.append(v)
         self._approx_history[0].append(v)
 
-        # Bound history to max_lag + 1 to prevent unbounded RAM growth
+        # Bound every retained buffer so memory stays independent of stream
+        # length. keep_len = 2 * max_lag + 1 covers the deepest dyadic lag
+        # (max_lag) read at any level, plus the slot for the incoming sample.
         keep_len = self.max_lag * 2 + 1
+        if len(self.history) > keep_len:
+            self.history = self.history[-keep_len:]
         if len(self._approx_history[0]) > keep_len:
             self._approx_history[0] = self._approx_history[0][-keep_len:]
 

@@ -3,6 +3,8 @@ Tests for formal risk invariants: guarded division, Kelly criterion bounds,
 monotonic stoploss ratchets, leverage constraints, and drawdown bounds.
 """
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -142,3 +144,39 @@ def test_drawdown_bound() -> None:
     # Empty curve
     dd_empty, safe_empty = drawdown_bound([])
     assert dd_empty == 0.0 and safe_empty is True
+
+
+def test_guarded_div_zero_denominator_with_zero_epsilon() -> None:
+    """epsilon=0 must not turn the zero-divisor guard into ZeroDivisionError."""
+    assert guarded_div(10.0, 0.0, default=7.0, epsilon=0.0) == 7.0
+    assert guarded_div(10.0, -0.0, default=7.0, epsilon=0.0) == 7.0
+    assert guarded_div(10.0, 2.0, epsilon=0.0) == 5.0
+    assert guarded_div(1.0, 1e-300, epsilon=0.0) == pytest.approx(1e300)
+
+
+def test_guarded_div_array_is_warning_free() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = guarded_div_array([1.0, 2.0], [0.0, 4.0], default=-1.0, epsilon=0.0)
+    assert result.tolist() == [-1.0, 0.5]
+
+
+def test_guarded_div_array_overflow_is_warning_free() -> None:
+    """Overflowing quotients fall back to the default without a warning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = guarded_div_array([1e308], [1e-300], default=-1.0)
+    assert result.tolist() == [-1.0]
+
+
+def test_drawdown_bound_documented_fail_open_semantics() -> None:
+    """Pins the documented limitation: degenerate equity is reported safe."""
+    assert drawdown_bound(np.array([100.0, np.nan, 80.0])) == (0.0, True)
+    assert drawdown_bound(np.array([0.0, 0.0, -10.0])) == (0.0, True)
+
+
+def test_leverage_constraint_cannot_express_flat_position() -> None:
+    """Pins the documented clamp-up behavior and the zero rejection."""
+    assert leverage_constraint(0.2) == 1.0
+    with pytest.raises(InvariantViolationError, match="positive"):
+        leverage_constraint(0.0)

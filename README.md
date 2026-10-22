@@ -71,7 +71,7 @@ flowchart TD
         end
         subgraph ModWavelets ["causal_dsp.wavelets"]
             HaarMODWT["Causal Haar MODWT"]
-            HaarBuf["Streaming O(1) Buffer"]
+            HaarBuf["Streaming Bounded Buffer"]
             D4["Causal Daubechies D4 FIR"]
         end
         subgraph ModFilters ["causal_dsp.filters"]
@@ -132,6 +132,21 @@ $$x[t] = A_J[t] + \sum_{j=1}^J D_j[t]$$
 
 *Proof:* By induction. At level 1, $A_1[t] + D_1[t] = \frac{x[t] + x[t-1]}{2} + \frac{x[t] - x[t-1]}{2} = x[t]$. By induction step, $A_j[t] + D_j[t] = A_{j-1}[t]$. Summing over all $j=1 \dots J$ collapses telescopically to $x[t]$. $\blacksquare$
 
+**Boundary energy note.** The reconstruction identity is exact, but energy is
+*not* exactly conserved. Because the causal boundary replaces $A_{j-1}[t-L_j]$
+with $A_{j-1}[0]$ for $t < L_j$, the dyadic shift is not an isometry. For a
+series of length $n$ the exact per-level identity is
+
+$$\lVert A_j \rVert^2 + \lVert D_j \rVert^2
+= \lVert A_{j-1} \rVert^2
++ \tfrac{1}{2}\left(L_j \, A_{j-1}[0]^2 - \sum_{s=n-L_j}^{n-1} A_{j-1}[s]^2\right),$$
+
+so every discrepancy is a pure boundary term rather than floating-point noise.
+For zero-mean series its relative size decays approximately as $O(1/n)$; it is
+never machine-precision zero at the boundary. `haar_modwt_energy` reports both
+the component sum and the reconstructed-signal energy so callers can audit the
+gap, and `causal_haar_synth` reconstruction remains exact to $<10^{-14}$.
+
 ### 3. Memory-Preserving Causal Fractional Differencing
 
 Following Marcos López de Prado (*Advances in Financial Machine Learning*, 2018), fractional differencing of order $d \in (0, 1)$ achieves stationarity while preserving long-term memory:
@@ -177,6 +192,15 @@ $$
 SL_t^{\mathrm{short}} = \min\left(SL_{t-1}, \; P_t + \Delta\right) \implies SL_t \le SL_{t-1}
 $$
 
+#### Documented failure modes
+
+`drawdown_bound` is a reporting helper and **fails open**: non-finite equity
+falls back to a 0.0 drawdown, and a non-positive peak produces a signed ratio
+that is discarded by `max`, so both can return `is_safe=True`. Validate equity
+upstream if the flag gates trading. `leverage_constraint` is a *clamp*: a
+request below `min_allowed` is raised to `min_allowed`, which can increase
+exposure, and it cannot express a flat (zero) position.
+
 #### Kelly Criterion Safety Bound
 
 $$
@@ -192,11 +216,12 @@ $$
 | **Prefix Causality Guaranteed** | ❌ No | ❌ No | ❌ No | **✅ Yes (Strict $\forall t$)** |
 | **Future Lookahead Bias** | Leaks $(W-1)/2$ bars | Leaks via reflection | Leaks in batch filters | **✅ Zero Future Leakage** |
 | **Perturbation Shock Validator** | ❌ None | ❌ None | ❌ None | **✅ Automated Multi-Shock Suite** |
-| **Haar MODWT Energy Conserved** | ❌ N/A | ⚠️ Periodic wrap | ❌ N/A | **✅ Machine Precision ($< 10^{-14}$)** |
-| **Real-Time $O(1)$ Streaming Buffer** | ❌ No | ❌ No | ❌ No | **✅ `CausalHaarBuffer`** |
+| **Haar MODWT Exact Reconstruction** | ❌ N/A | ⚠️ Periodic wrap | ❌ N/A | **✅ Machine Precision ($< 10^{-14}$)** |
+| **Haar MODWT Energy Accounting** | ❌ N/A | ⚠️ Periodic wrap | ❌ N/A | **✅ Per-scale report (causal boundary drift)** |
+| **Real-Time Streaming Buffer** | ❌ No | ❌ No | ❌ No | **✅ `CausalHaarBuffer` (bounded memory)** |
 | **Memory-Preserving FracDiff** | ❌ No | ❌ No | ⚠️ Batch only | **✅ Causal $O(K)$ Streaming** |
 | **One-Sided Savitzky-Golay** | ❌ Symmetric only | ❌ N/A | ❌ N/A | **✅ Exact Vandermonde Endpoint** |
-| **Formally Verified (Lean 4)** | ❌ No | ❌ No | ❌ No | **✅ 100% Machine Checked** |
+| **Formally Verified (Lean 4)** | ❌ No | ❌ No | ❌ No | **✅ Machine Checked (abstract model)** |
 
 ---
 
@@ -205,26 +230,32 @@ $$
 Every invariant and causality definition is backed by formal machine-checked proofs in the `verification/` module:
 
 ```lean
--- Theorem: Strict prefix invariance under causal composition
-theorem compose_is_causal {α β γ : Type} (f : Signal α → Signal β) (g : Signal β → Signal γ)
-    (hf : IsCausal f) (hg : IsCausal g) :
-    IsCausal (g ∘ f) := by
-  intro t x y h_pre
-  have h_mid : PrefixEquiv t (f x) (f y) := hf t x y h_pre
-  exact hg t (f x) (f y) h_mid
+-- verification/CausalDSP/Causality.lean
+/-- Agreement of two input series up to time t -/
+def AgreementUpTo {α : Type} (x y : Signal α) (t : Nat) : Prop :=
+  ∀ s : Nat, s ≤ t → x s = y s
 
--- Theorem: Monotonic long stoploss ratchet invariant
-theorem ratchet_long_monotonic (cur price delta : Float) (h_delta : delta > 0) :
-    let candidate := price - delta
-    let new_sl := if cur >= candidate then cur else candidate
-    new_sl >= cur := by
-  intro candidate new_sl
-  dsimp [new_sl]
+theorem compose_is_causal {α β γ : Type}
+    (f : Signal α → Signal β)
+    (g : Signal β → Signal γ)
+    (hf : IsCausal f)
+    (hg : IsCausal g) :
+    IsCausal (fun x => g (f x)) := by
+  intro x y t hAgree
+  apply hg
+  intro s hs
+  apply hf
+  intro u hu
+  apply hAgree
+  exact Nat.le_trans hu hs
+
+-- verification/CausalDSP/Safety.lean
+theorem ratchet_long_monotonic (curStop candidateStop : Nat) :
+    ratchet_long curStop candidateStop ≥ curStop := by
+  dsimp [ratchet_long]
   split
-  · rename_i h_ge; exact le_refl cur
-  · rename_i h_lt
-    have h_not : ¬ (cur >= candidate) := h_lt
-    exact le_of_lt (lt_of_not_ge h_not)
+  · omega
+  · omega
 ```
 
 Run the Lean 4 verification suite:
@@ -235,19 +266,31 @@ lake build
 lake env lean CheckAxioms.lean
 ```
 
-**Verification Guarantee:** Zero `sorry`, standard Lean 4 axioms only (`[propext, Classical.choice, Quot.sound]`).
+**Verification Guarantee:** Zero `sorry`, standard Lean 4 axioms only
+(`[propext, Classical.choice, Quot.sound]`). CI enforces this in three ways: a
+static scan of the sources (`verification/check_no_sorry.py`), a failure if
+`lake build` reports a `sorry` placeholder, and validation of the
+`#print axioms` output against the allow-list above.
+
+**Scope of the guarantee.** The Lean development verifies an *abstract model*:
+prefix agreement up to $t$ implies output agreement up to $t$ for identity,
+constant, lag, pointwise, scaling, composition, level-1 Haar and finite FIR
+operators, plus integer models of the safety invariants (guarded division,
+leverage clamping, stop-loss ratchet, drawdown, Kelly cap). The Python
+implementation is validated against that model by the test suite and the
+perturbation audits, but the two are **not** mechanically linked by extraction
+or a proof-carrying bridge. Some models are deliberately simpler than the
+runtime code: `guarded_div` in Lean is `Nat`-valued with a zero-divisor test
+only, while the Python version also handles NaN/∞ and an epsilon band; the
+ratchet proof is over `Nat` while the Python function uses floats.
 
 ---
 
 ## Installation
 
-### From PyPI
-
-```bash
-pip install causal-dsp
-```
-
 ### From Source
+
+The package is not yet published on PyPI; install from a clone:
 
 ```bash
 git clone https://github.com/abubakar293/causal-dsp.git
@@ -277,7 +320,7 @@ try:
     perturbation_shock_test(scipy_savgol, x, shock_time=50)
 except CausalityViolationError as e:
     print(f"❌ LEAK DETECTED: {e}")
-    # Output: Causality Violation Detected! Shock at t=50 leaked backwards into t=50 with delta=0.3421
+    # Output: Causality Violation Detected! Shock at t=50 leaked backwards into t=50 with delta=...
 
 # 2. causal-dsp One-Sided Savitzky-Golay (Strictly Causal)
 from causal_dsp import causal_savitzky_golay
@@ -306,7 +349,7 @@ reconstructed = causal_haar_synth(details, approx)
 assert np.allclose(prices, reconstructed, atol=1e-14)
 print(f"D1 Detail Shape: {details[0].shape}, A3 Smooth Shape: {approx.shape}")
 
-# Real-Time O(1) Streaming Buffer
+# Real-Time Streaming Buffer (bounded memory)
 streamer = CausalHaarBuffer(levels=3)
 for tick in prices:
     cur_details, cur_approx = streamer.update(tick)

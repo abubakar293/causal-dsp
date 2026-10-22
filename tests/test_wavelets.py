@@ -127,3 +127,73 @@ def test_invalid_wavelet_inputs() -> None:
 
     with pytest.raises(ValueError, match="empty"):
         causal_daubechies_d4([])
+
+
+def test_haar_modwt_energy_boundary_identity() -> None:
+    """The documented drift formula must match the implementation exactly."""
+    rng = np.random.default_rng(2026)
+    n = 64
+    x = rng.standard_normal(n)
+
+    for levels in (1, 2, 3):
+        details, approx = causal_haar_modwt(x, levels=levels)
+        measured = float(np.sum(approx**2) + sum(float(np.sum(d**2)) for d in details))
+
+        y = x.copy()
+        predicted = float(np.sum(y**2))
+        for j in range(1, levels + 1):
+            lag = 1 << (j - 1)
+            delayed = np.empty_like(y)
+            delayed[:lag] = y[0]
+            delayed[lag:] = y[:-lag]
+            predicted += 0.5 * (lag * y[0] ** 2 - float(np.sum(y[n - lag :] ** 2)))
+            y = 0.5 * (y + delayed)
+
+        assert abs(measured - predicted) < 1e-10
+
+
+def test_haar_modwt_energy_is_not_exactly_conserved() -> None:
+    """Boundary clamping breaks conservation by exactly 0.5 on this series."""
+    x = np.array([1.0] + [0.0] * 7)
+    details, approx = causal_haar_modwt(x, levels=1)
+    total = float(np.sum(approx**2) + np.sum(details[0] ** 2))
+    assert abs(total - 1.5) < 1e-12
+    assert abs(total - float(np.sum(x**2))) == pytest.approx(0.5)
+
+
+def test_causal_haar_buffer_memory_is_bounded() -> None:
+    buffer = CausalHaarBuffer(levels=4)
+    for val in range(20_000):
+        buffer.update(float(val))
+    keep_len = buffer.max_lag * 2 + 1
+    assert len(buffer.history) <= keep_len
+    assert all(len(level) <= keep_len for level in buffer._approx_history)
+
+
+def test_causal_haar_buffer_truncation_preserves_outputs() -> None:
+    """Bounded buffers must not alter any coefficient past the retention cap."""
+    rng = np.random.default_rng(4)
+    x = rng.standard_normal(500)
+    for levels in (1, 3, 5):
+        batch_details, batch_approx = causal_haar_modwt(x, levels=levels)
+        buffer = CausalHaarBuffer(levels=levels)
+        stream_details: list[list[float]] = [[] for _ in range(levels)]
+        stream_approx: list[float] = []
+        for val in x:
+            dets, app = buffer.update(float(val))
+            for j in range(levels):
+                stream_details[j].append(dets[j])
+            stream_approx.append(app)
+        assert np.allclose(np.array(stream_approx), batch_approx, atol=1e-12)
+        for j in range(levels):
+            assert np.allclose(np.array(stream_details[j]), batch_details[j], atol=1e-12)
+        keep_len = buffer.max_lag * 2 + 1
+        assert len(buffer.history) <= keep_len
+        assert all(len(level) <= keep_len for level in buffer._approx_history)
+
+
+def test_modwt_energy_type_is_exported() -> None:
+    import causal_dsp
+
+    assert "MODWTEnergy" in causal_dsp.__all__
+    assert causal_dsp.MODWTEnergy.__name__ == "MODWTEnergy"
