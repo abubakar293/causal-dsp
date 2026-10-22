@@ -17,20 +17,21 @@ from causal_dsp.filters import causal_fractional_diff, causal_savitzky_golay
 from causal_dsp.wavelets import causal_daubechies_d4, causal_haar_modwt
 
 
-def test_identity_is_causal():
+def test_identity_is_causal() -> None:
     rng = np.random.default_rng(42)
     x = rng.standard_normal(100)
     assert is_prefix_causal(lambda s: s, x)
     assert perturbation_shock_test(lambda s: s, x, shock_time=50)
 
 
-def test_centered_moving_average_fails_causality():
+def test_centered_moving_average_fails_causality() -> None:
     """Centered moving average queries x[t+1] and MUST fail causality tests."""
+
     def centered_ma(s: np.ndarray) -> np.ndarray:
         out = s.copy()
         for t in range(1, len(s) - 1):
             out[t] = (s[t - 1] + s[t] + s[t + 1]) / 3.0
-        return out
+        return np.asarray(out, dtype=np.float64)
 
     rng = np.random.default_rng(42)
     x = rng.standard_normal(50)
@@ -41,23 +42,23 @@ def test_centered_moving_average_fails_causality():
 
     # Violation must be detected at t=25 (because t=25 queried x[26] which was shocked!)
     assert exc_info.value.violation_time == 25
-    assert exc_info.value.delta > 1.0
+    assert exc_info.value.delta is not None and exc_info.value.delta > 1.0
 
 
-def test_standard_scipy_savgol_fails_causality():
-    """Scipy's standard Savitzky-Golay filter uses symmetric windows and leaks future information."""
+def test_standard_scipy_savgol_fails_causality() -> None:
+    """Scipy's standard Savitzky-Golay filter uses symmetric windows and leaks future data."""
     rng = np.random.default_rng(123)
     x = rng.standard_normal(100)
 
     def standard_savgol(s: np.ndarray) -> np.ndarray:
-        return savgol_filter(s, window_length=15, polyorder=2)
+        return np.asarray(savgol_filter(s, window_length=15, polyorder=2), dtype=np.float64)
 
     assert not is_prefix_causal(standard_savgol, x, shock_time=50)
     with pytest.raises(CausalityViolationError):
         perturbation_shock_test(standard_savgol, x, shock_time=50)
 
 
-def test_causal_savitzky_golay_passes_causality():
+def test_causal_savitzky_golay_passes_causality() -> None:
     rng = np.random.default_rng(42)
     x = rng.standard_normal(120)
 
@@ -66,10 +67,16 @@ def test_causal_savitzky_golay_passes_causality():
 
     assert perturbation_shock_test(filter_fn, x, shock_time=60)
     assert validate_zero_future_leakage(filter_fn, x, num_checks=5)
+    # Test small num_checks branch (sampling via rng)
+    assert validate_zero_future_leakage(filter_fn, x, num_checks=2, min_history=10, seed=123)
+    # Test large num_checks branch (num_checks >= span)
+    assert validate_zero_future_leakage(
+        lambda s: s, np.arange(15, dtype=np.float64), num_checks=20, min_history=10
+    )
     assert_prefix_causal(filter_fn, x)
 
 
-def test_causal_haar_modwt_passes_causality():
+def test_causal_haar_modwt_passes_causality() -> None:
     rng = np.random.default_rng(77)
     x = rng.standard_normal(100)
 
@@ -85,7 +92,7 @@ def test_causal_haar_modwt_passes_causality():
     assert validate_zero_future_leakage(detail_filter, x)
 
 
-def test_causal_daubechies_d4_passes_causality():
+def test_causal_daubechies_d4_passes_causality() -> None:
     rng = np.random.default_rng(99)
     x = rng.standard_normal(80)
 
@@ -96,7 +103,7 @@ def test_causal_daubechies_d4_passes_causality():
     assert validate_zero_future_leakage(d4_filter, x)
 
 
-def test_causal_fractional_diff_passes_causality():
+def test_causal_fractional_diff_passes_causality() -> None:
     rng = np.random.default_rng(101)
     x = 100.0 + np.cumsum(rng.standard_normal(90))
 
@@ -106,7 +113,7 @@ def test_causal_fractional_diff_passes_causality():
     assert validate_zero_future_leakage(frac_diff, x)
 
 
-def test_invalid_arguments_in_causality_test():
+def test_invalid_arguments_in_causality_test() -> None:
     with pytest.raises(ValueError, match="1D"):
         perturbation_shock_test(lambda s: s, np.ones((10, 2)))
 
@@ -116,5 +123,25 @@ def test_invalid_arguments_in_causality_test():
     with pytest.raises(ValueError, match="shock_time"):
         perturbation_shock_test(lambda s: s, [1.0, 2.0, 3.0], shock_time=10)
 
+    with pytest.raises(ValueError, match="shock_time"):
+        perturbation_shock_test(lambda s: s, [1.0, 2.0, 3.0], shock_time=-1)
+
     with pytest.raises(ValueError, match="does not match input shape"):
         perturbation_shock_test(lambda s: s[:-1], [1.0, 2.0, 3.0, 4.0])
+
+    with pytest.raises(ValueError, match="Unknown shock_type"):
+        perturbation_shock_test(lambda s: s, [1.0, 2.0, 3.0, 4.0], shock_type="invalid_type")
+
+    with pytest.raises(ValueError, match="too short for min_history"):
+        validate_zero_future_leakage(lambda s: s, [1.0, 2.0, 3.0], min_history=5)
+
+
+def test_assert_prefix_causal_raises_on_violation() -> None:
+    def leak_filter(s: np.ndarray) -> np.ndarray:
+        out = s.copy()
+        out[0] = s[-1]
+        return np.asarray(out, dtype=np.float64)
+
+    x = np.arange(25, dtype=np.float64)
+    with pytest.raises(CausalityViolationError):
+        assert_prefix_causal(leak_filter, x)

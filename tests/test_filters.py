@@ -14,7 +14,7 @@ from causal_dsp.filters import (
 )
 
 
-def test_fractional_weights_properties():
+def test_fractional_weights_properties() -> None:
     # d = 0 gives only [1.0] (identity)
     w_0 = causal_fractional_weights(0.0, length=10)
     assert len(w_0) == 1
@@ -33,7 +33,7 @@ def test_fractional_weights_properties():
     assert np.all(np.diff(abs_weights) <= 0)
 
 
-def test_fractional_diff_identity_and_first_diff():
+def test_fractional_diff_identity_and_first_diff() -> None:
     x = np.array([10.0, 12.0, 15.0, 14.0, 18.0], dtype=np.float64)
 
     # d = 0.0 -> identity
@@ -46,7 +46,7 @@ def test_fractional_diff_identity_and_first_diff():
     assert np.allclose(y_1, expected_diff)
 
 
-def test_fractional_diff_stationarity_on_random_walk():
+def test_fractional_diff_stationarity_on_random_walk() -> None:
     rng = np.random.default_rng(42)
     # Non-stationary cumulative random walk with zero starting level
     rw = np.cumsum(rng.standard_normal(500))
@@ -60,7 +60,7 @@ def test_fractional_diff_stationarity_on_random_walk():
     assert 0.5 < np.std(y_frac[50:]) < 3.0
 
 
-def test_causal_savitzky_golay_polynomial_reconstruction():
+def test_causal_savitzky_golay_polynomial_reconstruction() -> None:
     """A causal SG filter with polyorder 2 should exactly reconstruct a parabola."""
     t = np.arange(50, dtype=np.float64)
     parabola = 2.0 * t**2 - 3.0 * t + 5.0
@@ -70,7 +70,7 @@ def test_causal_savitzky_golay_polynomial_reconstruction():
     assert np.allclose(smoothed[20:], parabola[20:], atol=1e-8)
 
 
-def test_causal_savitzky_golay_derivative():
+def test_causal_savitzky_golay_derivative() -> None:
     """Derivative order 1 on a linear ramp must yield constant slope."""
     t = np.arange(40, dtype=np.float64)
     ramp = 3.5 * t + 10.0
@@ -79,8 +79,13 @@ def test_causal_savitzky_golay_derivative():
     assert np.allclose(slope[15:], 3.5, atol=1e-8)
 
 
-def test_causal_kalman_1d_tracking():
+def test_causal_kalman_1d_tracking() -> None:
     kf = CausalKalman1D(dt=1.0, process_noise=1e-4, measurement_noise=1e-2)
+    # Test update from uninitialized state directly
+    pos0, vel0 = kf.update(15.0)
+    assert pos0 == 15.0
+    assert vel0 == 0.0
+
     # Linear ramp with zero noise
     truth = np.linspace(10.0, 60.0, 50)
     filtered = kf.filter(truth)
@@ -89,8 +94,16 @@ def test_causal_kalman_1d_tracking():
     # Kalman filter converges to true ramp trajectory
     assert np.allclose(filtered[10:], truth[10:], atol=0.5)
 
+    # Empty filter check
+    empty_res = kf.filter([])
+    assert len(empty_res) == 0
 
-def test_causal_kalman_2d_tracking():
+    # Reset with None
+    kf.reset(None)
+    assert not kf.initialized
+
+
+def test_causal_kalman_2d_tracking() -> None:
     kf2 = CausalKalman2D(process_noise=1e-4, measurement_noise=1e-2)
     p1, p2 = kf2.update(100.0, 50.0)
     assert p1 == 100.0 and p2 == 50.0
@@ -99,8 +112,12 @@ def test_causal_kalman_2d_tracking():
     assert abs(p1_next - 101.0) < 1.0
     assert abs(p2_next - 50.5) < 1.0
 
+    # Reset with None
+    kf2.reset(None)
+    assert not kf2.initialized
 
-def test_invalid_filter_inputs():
+
+def test_invalid_filter_inputs() -> None:
     with pytest.raises(ValueError, match="length must be > 0"):
         causal_fractional_weights(0.4, length=0)
 
@@ -113,8 +130,20 @@ def test_invalid_filter_inputs():
     with pytest.raises(ValueError, match="window_length must be >= 2"):
         causal_savitzky_golay([1.0, 2.0], window_length=1)
 
+    with pytest.raises(ValueError, match="polyorder must be >= 0"):
+        causal_savitzky_golay([1.0, 2.0, 3.0], window_length=3, polyorder=-1)
+
     with pytest.raises(ValueError, match="polyorder must be less than window_length"):
         causal_savitzky_golay([1.0, 2.0, 3.0], window_length=3, polyorder=3)
 
-    with pytest.raises(ValueError, match="deriv must be <= polyorder"):
+    with pytest.raises(ValueError, match="deriv must be between 0 and polyorder"):
         causal_savitzky_golay([1.0, 2.0, 3.0, 4.0], window_length=4, polyorder=1, deriv=2)
+
+    with pytest.raises(ValueError, match="deriv must be between 0 and polyorder"):
+        causal_savitzky_golay([1.0, 2.0, 3.0, 4.0], window_length=4, polyorder=1, deriv=-1)
+
+    with pytest.raises(ValueError, match="1D"):
+        causal_savitzky_golay(np.ones((4, 4)))
+
+    with pytest.raises(ValueError, match="empty"):
+        causal_savitzky_golay([])

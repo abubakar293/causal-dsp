@@ -3,12 +3,13 @@ Mathematically verified safety invariants: guarded division, Kelly criterion upp
 monotonic stoploss ratchets, leverage constraints, and drawdown bounds.
 """
 
-from typing import Sequence, Tuple, Union
+from collections.abc import Sequence
+
 import numpy as np
 
 
 class InvariantViolationError(ValueError):
-    """Raised when an operational parameter or state violates formal mathematical safety invariants."""
+    """Raised when an operational parameter or state violates safety invariants."""
     pass
 
 
@@ -50,8 +51,8 @@ def guarded_div(
 
 
 def guarded_div_array(
-    numerator: Union[np.ndarray, Sequence[float]],
-    denominator: Union[np.ndarray, Sequence[float]],
+    numerator: np.ndarray | Sequence[float],
+    denominator: np.ndarray | Sequence[float],
     default: float = 0.0,
     epsilon: float = 1e-12,
 ) -> np.ndarray:
@@ -162,7 +163,7 @@ def monotonic_stoploss_ratchet(
         candidate = price - delta
         new_sl = max(cur, candidate)
         # Invariant check: new_sl >= cur
-        if new_sl < cur:
+        if new_sl < cur:  # pragma: no cover
             raise InvariantViolationError(
                 f"Long stoploss monotonicity violated: {new_sl} < {cur}"
             )
@@ -171,7 +172,7 @@ def monotonic_stoploss_ratchet(
         candidate = price + delta
         new_sl = min(cur, candidate)
         # Invariant check: new_sl <= cur
-        if new_sl > cur:
+        if new_sl > cur:  # pragma: no cover
             raise InvariantViolationError(
                 f"Short stoploss monotonicity violated: {new_sl} > {cur}"
             )
@@ -220,9 +221,9 @@ def leverage_constraint(
 
 
 def drawdown_bound(
-    equity_curve: Union[np.ndarray, Sequence[float]],
+    equity_curve: np.ndarray | Sequence[float],
     max_drawdown_limit: float = 0.20,
-) -> Tuple[float, bool]:
+) -> tuple[float, bool]:
     """
     Calculates maximum drawdown along an equity series and verifies the safety bound.
 

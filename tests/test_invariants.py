@@ -17,7 +17,7 @@ from causal_dsp.invariants import (
 )
 
 
-def test_guarded_div_zero_and_near_zero():
+def test_guarded_div_zero_and_near_zero() -> None:
     # Strict zero
     assert guarded_div(10.0, 0.0, default=99.0) == 99.0
     # Below epsilon
@@ -33,7 +33,7 @@ def test_guarded_div_zero_and_near_zero():
     assert guarded_div(10.0, np.inf, default=-1.0) == -1.0
 
 
-def test_guarded_div_array():
+def test_guarded_div_array() -> None:
     num = np.array([10.0, 20.0, 30.0, np.nan, 50.0])
     den = np.array([2.0, 0.0, 1e-14, 5.0, np.inf])
     res = guarded_div_array(num, den, default=-999.0, epsilon=1e-12)
@@ -45,7 +45,7 @@ def test_guarded_div_array():
     assert res[4] == -999.0
 
 
-def test_kelly_criterion_bounds():
+def test_kelly_criterion_bounds() -> None:
     # 60% winrate, 2.0 win/loss ratio -> f* = (0.6*2 - 0.4)/2 = 0.8/2 = 0.40
     f = kelly_criterion(win_rate=0.6, win_loss_ratio=2.0, max_kelly_fraction=0.5)
     assert abs(f - 0.40) < 1e-6
@@ -65,33 +65,41 @@ def test_kelly_criterion_bounds():
     assert kelly_criterion(0.5, 2.0, max_kelly_fraction=-0.1) == 0.0
 
 
-def test_monotonic_stoploss_ratchet_long():
+def test_monotonic_stoploss_ratchet_long() -> None:
     cur_sl = 100.0
     delta = 5.0
 
     # Price increases: new candidate is 110 - 5 = 105 > 100 -> tightened to 105
-    new_sl = monotonic_stoploss_ratchet(cur_sl, new_price=110.0, trailing_delta=delta, is_long=True)
+    new_sl = monotonic_stoploss_ratchet(
+        cur_sl, new_price=110.0, trailing_delta=delta, is_long=True
+    )
     assert new_sl == 105.0
 
     # Price drops: candidate is 98 - 5 = 93 < 105 -> remains 105! (Never loosens)
-    tightened_sl = monotonic_stoploss_ratchet(new_sl, new_price=98.0, trailing_delta=delta, is_long=True)
+    tightened_sl = monotonic_stoploss_ratchet(
+        new_sl, new_price=98.0, trailing_delta=delta, is_long=True
+    )
     assert tightened_sl == 105.0
 
 
-def test_monotonic_stoploss_ratchet_short():
+def test_monotonic_stoploss_ratchet_short() -> None:
     cur_sl = 100.0
     delta = 5.0
 
     # Price drops for short: candidate is 90 + 5 = 95 < 100 -> tightened down to 95
-    new_sl = monotonic_stoploss_ratchet(cur_sl, new_price=90.0, trailing_delta=delta, is_long=False)
+    new_sl = monotonic_stoploss_ratchet(
+        cur_sl, new_price=90.0, trailing_delta=delta, is_long=False
+    )
     assert new_sl == 95.0
 
     # Price rises for short: candidate is 102 + 5 = 107 > 95 -> remains 95! (Never loosens)
-    tightened_sl = monotonic_stoploss_ratchet(new_sl, new_price=102.0, trailing_delta=delta, is_long=False)
+    tightened_sl = monotonic_stoploss_ratchet(
+        new_sl, new_price=102.0, trailing_delta=delta, is_long=False
+    )
     assert tightened_sl == 95.0
 
 
-def test_monotonic_stoploss_ratchet_invalid_inputs():
+def test_monotonic_stoploss_ratchet_invalid_inputs() -> None:
     with pytest.raises(InvariantViolationError):
         monotonic_stoploss_ratchet(100.0, 110.0, trailing_delta=0.0)
 
@@ -99,7 +107,7 @@ def test_monotonic_stoploss_ratchet_invalid_inputs():
         monotonic_stoploss_ratchet(100.0, np.nan, trailing_delta=5.0)
 
 
-def test_leverage_constraint():
+def test_leverage_constraint() -> None:
     # Valid range
     assert leverage_constraint(2.5, max_allowed=3.0, min_allowed=1.0) == 2.5
     # Above max
@@ -107,17 +115,20 @@ def test_leverage_constraint():
     # Below min
     assert leverage_constraint(0.5, max_allowed=3.0, min_allowed=1.0) == 1.0
 
-    with pytest.raises(InvariantViolationError):
+    with pytest.raises(InvariantViolationError, match="cannot exceed"):
         leverage_constraint(2.0, max_allowed=1.0, min_allowed=3.0)
 
-    with pytest.raises(InvariantViolationError):
+    with pytest.raises(InvariantViolationError, match="min_allowed must be > 0"):
+        leverage_constraint(2.0, max_allowed=3.0, min_allowed=-1.0)
+
+    with pytest.raises(InvariantViolationError, match="positive"):
         leverage_constraint(-1.0)
 
-    with pytest.raises(InvariantViolationError):
+    with pytest.raises(InvariantViolationError, match="positive"):
         leverage_constraint(np.nan)
 
 
-def test_drawdown_bound():
+def test_drawdown_bound() -> None:
     equity = np.array([100.0, 110.0, 120.0, 96.0, 105.0, 130.0])
     # Peak is 120.0, trough is 96.0 -> DD = (120 - 96)/120 = 24/120 = 0.20 (20%)
     max_dd, is_safe = drawdown_bound(equity, max_drawdown_limit=0.25)

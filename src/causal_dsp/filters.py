@@ -3,7 +3,9 @@ Memory-preserving Causal Fractional Differencing (De Prado 2018),
 One-sided Causal Savitzky-Golay polynomial filters, and Causal Kalman state estimators.
 """
 
-from typing import Optional, Sequence, Tuple, Union
+from collections.abc import Sequence
+from math import factorial
+
 import numpy as np
 from scipy import linalg
 
@@ -48,7 +50,7 @@ def causal_fractional_weights(
 
 
 def causal_fractional_diff(
-    x: Union[np.ndarray, Sequence[float]],
+    x: np.ndarray | Sequence[float],
     d: float = 0.40,
     threshold: float = 1e-4,
 ) -> np.ndarray:
@@ -95,7 +97,7 @@ def causal_fractional_diff(
 
 
 def causal_savitzky_golay(
-    x: Union[np.ndarray, Sequence[float]],
+    x: np.ndarray | Sequence[float],
     window_length: int = 15,
     polyorder: int = 2,
     deriv: int = 0,
@@ -136,8 +138,8 @@ def causal_savitzky_golay(
         raise ValueError("polyorder must be >= 0")
     if polyorder >= window_length:
         raise ValueError("polyorder must be less than window_length")
-    if deriv > polyorder:
-        raise ValueError("deriv must be <= polyorder")
+    if deriv < 0 or deriv > polyorder:
+        raise ValueError("deriv must be between 0 and polyorder")
 
     # Time coordinates relative to current point: [-(W-1), -(W-2), ..., -1, 0]
     W = window_length
@@ -150,7 +152,6 @@ def causal_savitzky_golay(
     pinv_V = linalg.pinv(V)
 
     # For evaluating derivative at t = 0: factorial(deriv) * pinv_V[deriv, :]
-    from math import factorial
     filter_weights = factorial(deriv) * pinv_V[deriv, :]
 
     # Causal sliding FIR convolution
@@ -192,7 +193,7 @@ class CausalKalman1D:
         self.P = np.eye(2, dtype=np.float64) * 1.0
         self.initialized = False
 
-    def reset(self, initial_val: Optional[float] = None) -> None:
+    def reset(self, initial_val: float | None = None) -> None:
         """Reset state estimate and covariance."""
         if initial_val is not None:
             self.x = np.array([[initial_val], [0.0]], dtype=np.float64)
@@ -203,7 +204,7 @@ class CausalKalman1D:
             self.P = np.eye(2, dtype=np.float64) * 1.0
             self.initialized = False
 
-    def update(self, z: float) -> Tuple[float, float]:
+    def update(self, z: float) -> tuple[float, float]:
         """
         Process single observation causally.
 
@@ -228,18 +229,20 @@ class CausalKalman1D:
         K = P_pred @ self.H.T @ np.linalg.inv(S)
 
         self.x = x_pred + K @ y
-        I = np.eye(2, dtype=np.float64)
-        self.P = (I - K @ self.H) @ P_pred
+        identity_2 = np.eye(2, dtype=np.float64)
+        self.P = (identity_2 - K @ self.H) @ P_pred
 
         return float(self.x[0, 0]), float(self.x[1, 0])
 
-    def filter(self, x: Union[np.ndarray, Sequence[float]]) -> np.ndarray:
+    def filter(self, x: np.ndarray | Sequence[float]) -> np.ndarray:
         """
         Causally filters entire series x.
         """
         x_arr = np.asarray(x, dtype=np.float64)
         out = np.empty_like(x_arr)
-        self.reset(x_arr[0] if len(x_arr) > 0 else 0.0)
+        if len(x_arr) == 0:
+            return out
+        self.reset(x_arr[0])
         for i, val in enumerate(x_arr):
             pos, _ = self.update(val)
             out[i] = pos
@@ -262,7 +265,7 @@ class CausalKalman2D:
         self.R = np.eye(2, dtype=np.float64) * measurement_noise
         self.initialized = False
 
-    def reset(self, initial_vals: Optional[Tuple[float, float]] = None) -> None:
+    def reset(self, initial_vals: tuple[float, float] | None = None) -> None:
         if initial_vals is not None:
             self.x = np.array([[initial_vals[0]], [initial_vals[1]]], dtype=np.float64)
             self.P = np.eye(2, dtype=np.float64) * 1.0
@@ -272,7 +275,7 @@ class CausalKalman2D:
             self.P = np.eye(2, dtype=np.float64) * 1.0
             self.initialized = False
 
-    def update(self, z1: float, z2: float) -> Tuple[float, float]:
+    def update(self, z1: float, z2: float) -> tuple[float, float]:
         """
         Update bivariate state strictly causally.
         """

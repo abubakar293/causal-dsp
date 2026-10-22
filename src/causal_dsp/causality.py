@@ -2,7 +2,8 @@
 Causality verification protocols, perturbation shock tests, and zero-lookahead validators.
 """
 
-from typing import Callable, Optional, Sequence, Union
+from collections.abc import Callable, Sequence
+
 import numpy as np
 
 
@@ -12,9 +13,9 @@ class CausalityViolationError(AssertionError):
     def __init__(
         self,
         message: str,
-        shock_time: Optional[int] = None,
-        violation_time: Optional[int] = None,
-        delta: Optional[float] = None,
+        shock_time: int | None = None,
+        violation_time: int | None = None,
+        delta: float | None = None,
     ) -> None:
         super().__init__(message)
         self.shock_time = shock_time
@@ -24,8 +25,8 @@ class CausalityViolationError(AssertionError):
 
 def perturbation_shock_test(
     filter_fn: Callable[[np.ndarray], np.ndarray],
-    x: Union[np.ndarray, Sequence[float]],
-    shock_time: Optional[int] = None,
+    x: np.ndarray | Sequence[float],
+    shock_time: int | None = None,
     shock_magnitude: float = 1e6,
     atol: float = 1e-12,
     shock_type: str = "step",
@@ -69,9 +70,7 @@ def perturbation_shock_test(
     if shock_time is None:
         shock_time = n // 2
     if shock_time < 0 or shock_time >= n - 1:
-        raise ValueError(
-            f"shock_time must be in range [0, {n - 2}], got {shock_time}"
-        )
+        raise ValueError(f"shock_time must be in range [0, {n - 2}], got {shock_time}")
 
     # 1. Base response
     y_base = np.asarray(filter_fn(x_arr), dtype=np.float64)
@@ -114,8 +113,8 @@ def perturbation_shock_test(
 
 def is_prefix_causal(
     filter_fn: Callable[[np.ndarray], np.ndarray],
-    x: Union[np.ndarray, Sequence[float]],
-    shock_time: Optional[int] = None,
+    x: np.ndarray | Sequence[float],
+    shock_time: int | None = None,
     atol: float = 1e-12,
 ) -> bool:
     """
@@ -129,7 +128,7 @@ def is_prefix_causal(
 
 def validate_zero_future_leakage(
     filter_fn: Callable[[np.ndarray], np.ndarray],
-    x: Union[np.ndarray, Sequence[float]],
+    x: np.ndarray | Sequence[float],
     num_checks: int = 5,
     min_history: int = 10,
     atol: float = 1e-12,
@@ -163,9 +162,15 @@ def validate_zero_future_leakage(
     if n <= min_history + 2:
         raise ValueError(f"Signal length {n} is too short for min_history={min_history}")
 
-    rng = np.random.default_rng(seed)
     max_t = n - 2
-    candidate_times = np.linspace(min_history, max_t, num=min(num_checks, max_t - min_history + 1), dtype=int)
+    span = max_t - min_history + 1
+    if num_checks >= span:
+        candidate_times = np.arange(min_history, max_t + 1, dtype=int)
+    else:
+        rng = np.random.default_rng(seed)
+        candidate_times = np.sort(
+            rng.choice(np.arange(min_history, max_t + 1), size=num_checks, replace=False)
+        )
 
     for t in candidate_times:
         for shock_type in ("step", "impulse", "random"):
@@ -184,7 +189,7 @@ def validate_zero_future_leakage(
 
 def assert_prefix_causal(
     filter_fn: Callable[[np.ndarray], np.ndarray],
-    x: Union[np.ndarray, Sequence[float]],
+    x: np.ndarray | Sequence[float],
     atol: float = 1e-12,
 ) -> None:
     """

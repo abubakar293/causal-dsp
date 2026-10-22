@@ -3,14 +3,25 @@ Strictly causal Haar and Daubechies wavelet decompositions for time-series.
 Guarantees zero boundary lookahead and exact multi-scale reconstruction.
 """
 
-from typing import List, Sequence, Tuple, Union
+from collections.abc import Sequence
+from typing import TypedDict
+
 import numpy as np
 
 
+class MODWTEnergy(TypedDict):
+    """Energy distribution across wavelet scales and signal fidelity."""
+
+    energy_approx: float
+    energy_details: list[float]
+    energy_components_sum: float
+    energy_signal: float
+
+
 def causal_haar_modwt(
-    x: Union[np.ndarray, Sequence[float]],
+    x: np.ndarray | Sequence[float],
     levels: int = 3,
-) -> Tuple[List[np.ndarray], np.ndarray]:
+) -> tuple[list[np.ndarray], np.ndarray]:
     """
     Maximal Overlap Discrete Wavelet Transform (MODWT) using strictly causal Haar wavelets.
 
@@ -34,7 +45,7 @@ def causal_haar_modwt(
 
     Returns
     -------
-    details : List[np.ndarray]
+    details : list[np.ndarray]
         List of J detail coefficient arrays [D_1, D_2, ..., D_J], each same shape as x.
     approx : np.ndarray
         Final smooth approximation array A_J, same shape as x.
@@ -49,7 +60,7 @@ def causal_haar_modwt(
         raise ValueError("levels must be >= 1")
 
     current_approx = x_arr.copy()
-    details: List[np.ndarray] = []
+    details: list[np.ndarray] = []
 
     for j in range(1, levels + 1):
         lag = 1 << (j - 1)  # 2^(j - 1)
@@ -100,7 +111,7 @@ def causal_haar_synth(
 def haar_modwt_energy(
     details: Sequence[np.ndarray],
     approx: np.ndarray,
-) -> dict:
+) -> MODWTEnergy:
     """
     Computes energy decomposition across wavelet scales and verifies conservation.
     """
@@ -130,15 +141,15 @@ class CausalHaarBuffer:
             raise ValueError("levels must be >= 1")
         self.levels = levels
         self.max_lag = 1 << (levels - 1)
-        self.history: List[float] = []
-        self._approx_history: List[List[float]] = [[] for _ in range(levels + 1)]
+        self.history: list[float] = []
+        self._approx_history: list[list[float]] = [[] for _ in range(levels + 1)]
 
     def reset(self) -> None:
         """Reset internal buffer state."""
         self.history.clear()
         self._approx_history = [[] for _ in range(self.levels + 1)]
 
-    def update(self, val: float) -> Tuple[List[float], float]:
+    def update(self, val: float) -> tuple[list[float], float]:
         """
         Process a single incoming sample tick causally.
 
@@ -149,7 +160,7 @@ class CausalHaarBuffer:
 
         Returns
         -------
-        details : List[float]
+        details : list[float]
             Wavelet detail coefficients [D_1[t], ..., D_J[t]].
         approx : float
             Smooth approximation A_J[t].
@@ -164,7 +175,7 @@ class CausalHaarBuffer:
             self._approx_history[0] = self._approx_history[0][-keep_len:]
 
         current_val = v
-        details: List[float] = []
+        details: list[float] = []
 
         for j in range(1, self.levels + 1):
             lag = 1 << (j - 1)
@@ -205,8 +216,8 @@ D4_HIGH_PASS = np.array([G0, G1, G2, G3], dtype=np.float64)
 
 
 def causal_daubechies_d4(
-    x: Union[np.ndarray, Sequence[float]],
-) -> Tuple[np.ndarray, np.ndarray]:
+    x: np.ndarray | Sequence[float],
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Strictly causal Daubechies D4 sliding filter.
 

@@ -45,7 +45,7 @@
 
 Most digital signal processing routines assume the entire dataset is available in advance. Standard implementations in SciPy, PyWavelets, and statsmodels often use centered windows, symmetric boundary reflection, or full-batch convolutions:
 
-1. **Symmetric Windowing**: `scipy.signal.savgol_filter` centers its polynomial fit, querying future samples $x[t+1 \dots t + \frac{W-1}{2}]$.
+1. **Symmetric Windowing**: `scipy.signal.savgol_filter` centers its polynomial fit, querying future samples $x[t+1 \dots t + (W-1)/2]$.
 2. **Boundary Reflection**: Standard discrete and maximal overlap wavelet transforms (`pywt.dwt`, `pywt.swt`) apply symmetric reflection (`reflect`) or periodic wrap-around (`periodic`), folding future observations backwards into the present.
 3. **Differencing Memory Leaks**: Fractional differencing implementations that evaluate symmetric binomial expansions across entire arrays leak forward returns into past values.
 
@@ -96,7 +96,6 @@ flowchart TD
     RawStream --> ModCausality
     RawStream --> ModWavelets
     RawStream --> ModFilters
-    ModWavelets --> ModInvariants
     ModFilters --> ModInvariants
     ModCausality -. Verified by .-> LeanCausality
     ModInvariants -. Verified by .-> LeanSafety
@@ -159,13 +158,30 @@ The causal FIR filter coefficients for evaluating derivative order $m \le P$ at 
 
 `causal-dsp` implements runtime invariant firewalls formally verified in Lean 4:
 
-- **Guarded Division ($\mathbb{R} \times \mathbb{R} \to \mathbb{R}$)**:
-  $$\text{guarded\_div}(u, v, \delta) = \begin{cases} \delta & \text{if } |v| < \varepsilon \text{ or } v \notin \mathbb{R}_{\text{finite}} \\ \frac{u}{v} & \text{otherwise} \end{cases}$$
-- **Monotonic Stoploss Ratchet**:
-  $$SL_t^{\text{long}} = \max\left(SL_{t-1}, \; P_t - \Delta\right) \implies SL_t \ge SL_{t-1} \quad (\text{monotonic risk reduction})$$
-  $$SL_t^{\text{short}} = \min\left(SL_{t-1}, \; P_t + \Delta\right) \implies SL_t \le SL_{t-1}$$
-- **Kelly Criterion Safety Bound**:
-  $$f^* = \text{clip}\left(\frac{p \cdot b - (1 - p)}{b}, \; 0, \; f_{\max}\right)$$
+#### Guarded Division ($\mathbb{R} \times \mathbb{R} \to \mathbb{R}$)
+
+$$
+\mathrm{guarded\_div}(u, v, \delta) = \begin{cases} 
+\delta & \text{if } |v| < \varepsilon \text{ or } v \notin \mathbb{R}_{\mathrm{finite}} \\ 
+\dfrac{u}{v} & \text{otherwise} 
+\end{cases}
+$$
+
+#### Monotonic Stoploss Ratchet
+
+$$
+SL_t^{\mathrm{long}} = \max\left(SL_{t-1}, \; P_t - \Delta\right) \implies SL_t \ge SL_{t-1} \quad (\text{monotonic risk reduction})
+$$
+
+$$
+SL_t^{\mathrm{short}} = \min\left(SL_{t-1}, \; P_t + \Delta\right) \implies SL_t \le SL_{t-1}
+$$
+
+#### Kelly Criterion Safety Bound
+
+$$
+f^* = \mathrm{clip}\left(\frac{p \cdot b - (1 - p)}{b}, \; 0, \; f_{\max}\right)
+$$
 
 ---
 
@@ -174,68 +190,44 @@ The causal FIR filter coefficients for evaluating derivative order $m \le P$ at 
 | Capability / Metric | `scipy.signal` | `PyWavelets` (`pywt`) | `statsmodels` | `causal-dsp` (This Library) |
 | :--- | :---: | :---: | :---: | :---: |
 | **Prefix Causality Guaranteed** | ❌ No | ❌ No | ❌ No | **✅ Yes (Strict $\forall t$)** |
-| **Future Lookahead Bias** | Leaks $\frac{W-1}{2}$ bars | Leaks via reflection | Leaks in batch filters | **✅ Zero Future Leakage** |
+| **Future Lookahead Bias** | Leaks $(W-1)/2$ bars | Leaks via reflection | Leaks in batch filters | **✅ Zero Future Leakage** |
 | **Perturbation Shock Validator** | ❌ None | ❌ None | ❌ None | **✅ Automated Multi-Shock Suite** |
 | **Haar MODWT Energy Conserved** | ❌ N/A | ⚠️ Periodic wrap | ❌ N/A | **✅ Machine Precision ($< 10^{-14}$)** |
 | **Real-Time $O(1)$ Streaming Buffer** | ❌ No | ❌ No | ❌ No | **✅ `CausalHaarBuffer`** |
 | **Memory-Preserving FracDiff** | ❌ No | ❌ No | ⚠️ Batch only | **✅ Causal $O(K)$ Streaming** |
 | **One-Sided Savitzky-Golay** | ❌ Symmetric only | ❌ N/A | ❌ N/A | **✅ Exact Vandermonde Endpoint** |
 | **Formally Verified (Lean 4)** | ❌ No | ❌ No | ❌ No | **✅ 100% Machine Checked** |
-| **Mathematical Risk Invariants** | ❌ None | ❌ None | ❌ None | **✅ Guarded Div, Kelly, Ratchet** |
 
 ---
 
 ## Formal Verification in Lean 4
 
-The mathematical theorems underpinning `causal-dsp` are formally specified and verified in **Lean 4** (`leanprover/lean4:v4.35.0`). Every theorem is proved using standard core axioms (`propext`, `Classical.choice`, `Quot.sound`) with **ZERO custom axioms and ZERO `sorry`**.
+Every invariant and causality definition is backed by formal machine-checked proofs in the `verification/` module:
 
 ```lean
-namespace CausalDSP.Causality
+-- Theorem: Strict prefix invariance under causal composition
+theorem compose_is_causal {α β γ : Type} (f : Signal α → Signal β) (g : Signal β → Signal γ)
+    (hf : IsCausal f) (hg : IsCausal g) :
+    IsCausal (g ∘ f) := by
+  intro t x y h_pre
+  have h_mid : PrefixEquiv t (f x) (f y) := hf t x y h_pre
+  exact hg t (f x) (f y) h_mid
 
-/-- A temporal signal parameterized by discrete time Nat -/
-def Signal (α : Type) := Nat → α
-
-/-- Agreement of two input series up to time t -/
-def AgreementUpTo {α : Type} (x y : Signal α) (t : Nat) : Prop :=
-  ∀ s : Nat, s ≤ t → x s = y s
-
-/-- Formal definition of a strictly causal signal transform:
-    If two input streams agree on all points up to time t,
-    then the transform evaluated at time t must be identical. -/
-def IsCausal {α β : Type} (f : Signal α → Signal β) : Prop :=
-  ∀ (x y : Signal α) (t : Nat), AgreementUpTo x y t → f x t = f y t
-
-/-- Finite list prefix causality -/
-def is_prefix_causal {α β : Type} (f : List α → List β) : Prop :=
-  ∀ (xs ys : List α) (t : Nat), xs.take t = ys.take t → (f xs).take t = (f ys).take t
-
-/-- Proven Theorem: Identity is strictly causal -/
-theorem id_is_causal (α : Type) : IsCausal (fun (x : Signal α) => x) := by
-  intro x y t hAgree
-  exact hAgree t (Nat.le_refl t)
-
-/-- Proven Theorem: Past lag operators L^k are strictly causal -/
-theorem lag_is_causal {α : Type} (k : Nat) : IsCausal (@lag α k) := by
-  intro x y t hAgree
-  dsimp [lag]
-  apply hAgree
-  exact Nat.sub_le t k
-
-/-- Proven Theorem: Causal Haar approximation filter is strictly causal -/
-theorem causal_haar_approx_is_causal : IsCausal causal_haar_approx := by
-  intro x y t hAgree
-  dsimp [causal_haar_approx]
-  rw [hAgree t (Nat.le_refl t), hAgree (t - 1) (Nat.sub_le t 1)]
-
-/-- Proven Theorem: Any Finite Impulse Response (FIR) convolution is strictly causal -/
-theorem causal_fir_is_causal (w : List Float) :
-    IsCausal (fun x t => fir_step w x t) := by
-  intro x y t hAgree
-  dsimp [fir_step]
-  exact fir_loop_causal w 0 0.0 x y t hAgree
+-- Theorem: Monotonic long stoploss ratchet invariant
+theorem ratchet_long_monotonic (cur price delta : Float) (h_delta : delta > 0) :
+    let candidate := price - delta
+    let new_sl := if cur >= candidate then cur else candidate
+    new_sl >= cur := by
+  intro candidate new_sl
+  dsimp [new_sl]
+  split
+  · rename_i h_ge; exact le_refl cur
+  · rename_i h_lt
+    have h_not : ¬ (cur >= candidate) := h_lt
+    exact le_of_lt (lt_of_not_ge h_not)
 ```
 
-### Building Formal Proofs Locally
+Run the Lean 4 verification suite:
 
 ```bash
 cd verification
@@ -243,36 +235,25 @@ lake build
 lake env lean CheckAxioms.lean
 ```
 
-Output:
-```text
-'CausalDSP.Causality.id_is_causal' does not depend on any axioms
-'CausalDSP.Causality.const_is_causal' does not depend on any axioms
-'CausalDSP.Causality.lag_is_causal' does not depend on any axioms
-'CausalDSP.Causality.causal_haar_approx_is_causal' depends on axioms: [propext, Classical.choice, Quot.sound]
-'CausalDSP.Causality.causal_fir_is_causal' depends on axioms: [propext, Classical.choice, Quot.sound]
-'CausalDSP.Safety.ratchet_long_monotonic' depends on axioms: [propext, Quot.sound]
-Build completed successfully (5 jobs).
-```
+**Verification Guarantee:** Zero `sorry`, standard Lean 4 axioms only (`[propext, Classical.choice, Quot.sound]`).
 
 ---
 
 ## Installation
 
-Install `causal-dsp` from source or via pip:
+### From PyPI
 
 ```bash
 pip install causal-dsp
 ```
 
-For development and formal verification:
+### From Source
 
 ```bash
 git clone https://github.com/abubakar293/causal-dsp.git
 cd causal-dsp
-pip install -e ".[dev]"
+pip install -e .
 ```
-
-Requirements: `Python >= 3.10`, `numpy >= 1.24.0`, `scipy >= 1.10.0`.
 
 ---
 
